@@ -1,65 +1,794 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useState } from "react";
+import { toast } from "sonner";
+import { useLanguage } from "@/app/language-context";
+import {
+  useChatbots,
+  useChatbot,
+  useOverview,
+  useCreateChatbot,
+  useUpdateChatbot,
+  useDeleteChatbot,
+  useUpdateStatus,
+} from "@/hooks/useChatbots";
+import type {
+  Chatbot,
+  ChatbotStatus,
+  ChatbotFormData,
+  ListParams,
+} from "@/lib/api";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+
+// ──────────────────────────────────────────────
+// Helpers
+// ──────────────────────────────────────────────
+
+const VND_RATE = 27_000;
+
+const fmt = (n?: number | null) =>
+  (n ?? 0).toLocaleString("vi-VN", { maximumFractionDigits: 6 });
+
+const fmtVnd = (usd?: number | null) =>
+  `${Math.round((usd ?? 0) * VND_RATE).toLocaleString("vi-VN")} ₫`;
+
+const fmtDate = (d?: string | null) =>
+  d ? new Date(d).toLocaleString("vi-VN") : "—";
+
+const STATUSES: ChatbotStatus[] = ["Active", "Pending", "Disabled"];
+
+const STATUS_CLS: Record<ChatbotStatus, string> = {
+  Active: "border-emerald-500/40 bg-emerald-500/10 text-emerald-400",
+  Pending: "border-amber-500/40 bg-amber-500/10 text-amber-400",
+  Disabled: "border-rose-500/40 bg-rose-500/10 text-rose-400",
+};
+
+const BLANK: ChatbotFormData = {
+  name: "",
+  email: "",
+  logo_url: "",
+  primary_color: "#6c63ff",
+  status: "Pending",
+  description: "",
+};
+
+// ──────────────────────────────────────────────
+// Avatar
+// ──────────────────────────────────────────────
+
+function Avatar({ name, color }: { name: string; color: string }) {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
+    <span
+      className="inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl text-sm font-black text-white"
+      style={{ background: color }}
+    >
+      {name.charAt(0).toUpperCase()}
+    </span>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Overview Cards
+// ──────────────────────────────────────────────
+
+function OverviewCards() {
+  const { t } = useLanguage();
+  const { data, isLoading } = useOverview();
+
+  if (isLoading)
+    return (
+      <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {[...Array(4)].map((_, i) => (
+          <Skeleton key={i} className="h-24 rounded-xl" />
+        ))}
+      </div>
+    );
+
+  if (!data) return null;
+
+  const cards = [
+    {
+      label: t("activeChatbots"),
+      value: fmt(data.chatbots.active),
+      sub: `${fmt(data.chatbots.total)} total`,
+      accent: "before:bg-emerald-400",
+      valCls: "text-emerald-400",
+    },
+    {
+      label: t("pendingChatbots"),
+      value: fmt(data.chatbots.pending),
+      sub: t("pendingApproval"),
+      accent: "before:bg-amber-400",
+      valCls: "text-amber-400",
+    },
+    {
+      label: t("messagesThisMonth"),
+      value: fmt(data.last_30_days.total_messages),
+      sub: `${fmt(data.last_30_days.total_errors)} errors`,
+      accent: "before:bg-indigo-400",
+      valCls: "text-indigo-400",
+    },
+    {
+      label: t("costThisMonth"),
+      value: fmtVnd(data.last_30_days.total_actual_cost),
+      sub: `Converted: ${fmtVnd(data.last_30_days.total_scaled_cost)}`,
+      accent: "before:bg-rose-400",
+      valCls: "text-rose-400",
+    },
+  ];
+
+  return (
+    <div className="mb-8 grid grid-cols-2 gap-4 lg:grid-cols-4">
+      {cards.map((c) => (
+        <div
+          key={c.label}
+          className={`relative overflow-hidden rounded-xl border border-border bg-card p-5 transition-transform hover:-translate-y-0.5
+            before:absolute before:inset-x-0 before:top-0 before:h-0.5 ${c.accent}`}
+        >
+          <p className="mb-2 font-mono text-[10px] uppercase tracking-widest text-muted-foreground">
+            {c.label}
           </p>
+          <p className={`text-2xl font-black leading-none ${c.valCls}`}>{c.value}</p>
+          <p className="mt-1.5 font-mono text-xs text-muted-foreground">{c.sub}</p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      ))}
     </div>
   );
 }
+
+// ──────────────────────────────────────────────
+// Form Dialog
+// ──────────────────────────────────────────────
+
+interface FormDialogProps {
+  open: boolean;
+  editingId: string | null;
+  onClose: () => void;
+}
+
+function FormDialog({ open, editingId, onClose }: FormDialogProps) {
+  const { t } = useLanguage();
+  const [form, setForm] = useState<ChatbotFormData>(BLANK);
+
+  // Fetch detail for prefill when editing
+  const { data: detail, isLoading: detailLoading } = useChatbot(editingId);
+
+  // Sync form when detail arrives
+  const prevId = useState<string | null>(null);
+  if (editingId && detail && prevId[0] !== editingId) {
+    prevId[1](editingId);
+    setForm({
+      name: detail.name,
+      email: detail.email,
+      logo_url: detail.logo_url ?? "",
+      primary_color: detail.primary_color,
+      status: detail.status,
+      description: detail.description ?? "",
+    });
+  }
+  if (!editingId && prevId[0] !== null) {
+    prevId[1](null);
+    setForm(BLANK);
+  }
+
+  const createMut = useCreateChatbot();
+  const updateMut = useUpdateChatbot(editingId ?? "");
+  const isPending = createMut.isPending || updateMut.isPending;
+
+  const set = (k: keyof ChatbotFormData, v: string) =>
+    setForm((f) => ({ ...f, [k]: v }));
+
+  async function handleSave() {
+    if (!form.name.trim() || !form.email.trim()) {
+      toast.error(t("nameRequired"));
+      return;
+    }
+    const body = {
+      ...form,
+      logo_url: form.logo_url?.trim() || null,
+      description: form.description?.trim() || null,
+    };
+    try {
+      if (editingId) {
+        await updateMut.mutateAsync(body);
+        toast.success(t("updateSuccess"));
+      } else {
+        await createMut.mutateAsync(body);
+        toast.success(t("createSuccess"));
+      }
+      onClose();
+    } catch (e) {
+      toast.error("Error: " + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-[95vw] sm:max-w-xl md:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>
+            {editingId ? t("editChatbot") : t("createNewChatbot")}
+          </DialogTitle>
+        </DialogHeader>
+
+        {editingId && detailLoading ? (
+          <div className="space-y-3 py-4">
+            {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}
+          </div>
+        ) : (
+          <div className="grid gap-4 py-1">
+            <div className="grid gap-1.5">
+              <Label>{t("nameLabel")}</Label>
+              <Input
+                value={form.name}
+                onChange={(e) => set("name", e.target.value)}
+                placeholder="Acme Corp"
+              />
+            </div>
+
+            <div className="grid gap-1.5">
+              <Label>{t("emailLabel")}</Label>
+              <Input
+                type="email"
+                value={form.email}
+                onChange={(e) => set("email", e.target.value)}
+                placeholder="admin@example.com"
+              />
+            </div>
+
+            <div className="grid gap-1.5">
+              <Label>{t("logoUrlLabel")}</Label>
+              <Input
+                value={form.logo_url ?? ""}
+                onChange={(e) => set("logo_url", e.target.value)}
+                placeholder="https://..."
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-1.5">
+                <Label>{t("primaryColorLabel")}</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={form.primary_color}
+                    onChange={(e) => set("primary_color", e.target.value)}
+                    className="h-9 w-12 cursor-pointer rounded border border-border bg-transparent p-1"
+                  />
+                  <Input
+                    className="font-mono text-sm"
+                    value={form.primary_color}
+                    onChange={(e) => set("primary_color", e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-1.5">
+                <Label>{t("statusLabel")}</Label>
+                <Select
+                  value={form.status}
+                  onValueChange={(v) => set("status", v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STATUSES.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid gap-1.5">
+              <Label>{t("descriptionLabel")}</Label>
+              <Textarea
+                rows={3}
+                value={form.description ?? ""}
+                onChange={(e) => set("description", e.target.value)}
+                placeholder={t("descriptionPlaceholder")}
+              />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" disabled={isPending} onClick={onClose}>
+            {t("cancel")}
+          </Button>
+          <Button disabled={isPending || (!!editingId && detailLoading)} onClick={handleSave}>
+            {isPending ? t("savingDots") : editingId ? t("saveChanges") : t("create")}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Detail Dialog
+// ──────────────────────────────────────────────
+
+interface DetailDialogProps {
+  id: string | null;
+  onClose: () => void;
+  onEdit: (id: string) => void;
+}
+
+function DetailDialog({ id, onClose, onEdit }: DetailDialogProps) {
+  const { t } = useLanguage();
+  const { data: bot, isLoading, error } = useChatbot(id);
+
+  return (
+    <Dialog open={!!id} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-h-screen w-[95vw] !max-w-none overflow-hidden p-4">
+        <DialogHeader>
+          <DialogTitle>{isLoading ? t("loading") : bot?.name ?? t("details")}</DialogTitle>
+          <DialogDescription>{t("detailDescription")}</DialogDescription>
+        </DialogHeader>
+
+        {isLoading && (
+          <div className="space-y-3 py-4">
+            {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
+          </div>
+        )}
+
+        {error && (
+          <p className="py-4 text-sm text-destructive">
+            {t("error")}: {(error as Error).message}
+          </p>
+        )}
+
+        {bot && (
+          <div className="max-h-96 overflow-y-auto space-y-1 py-1">
+            {/* Info grid */}
+            <section>
+              <SectionTitle>{t("basicInfo")}</SectionTitle>
+              <div className="grid grid-cols-4 gap-1.5">
+                <InfoField label="ID" mono>{bot.id}</InfoField>
+                <InfoField label={t("email")}>{bot.email}</InfoField>
+                <InfoField label={t("createdAt")} mono>{fmtDate(bot.created_at)}</InfoField>
+                <InfoField label={t("updatedAt")} mono>{fmtDate(bot.updated_at)}</InfoField>
+                <InfoField label={t("status")}>
+                  <Badge variant="outline" className={STATUS_CLS[bot.status]}>
+                    {bot.status}
+                  </Badge>
+                </InfoField>
+                <InfoField label={t("primaryColorLabel")}>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="h-4 w-4 rounded-full border border-border"
+                      style={{ background: bot.primary_color }}
+                    />
+                    <span className="font-mono text-xs">{bot.primary_color}</span>
+                  </div>
+                </InfoField>
+              </div>
+              {bot.description && (
+                <p className="mt-3 text-sm text-muted-foreground">{bot.description}</p>
+              )}
+            </section>
+
+            {/* Stats */}
+            <section>
+              <SectionTitle>{t("statistics")}</SectionTitle>
+              <div className="grid grid-cols-4 gap-1.5">
+                <InfoField label={t("totalMessages")}>{fmt(bot.stats.total_messages)}</InfoField>
+                <InfoField label={t("totalErrors")}>
+                  <span className="text-rose-400">{fmt(bot.stats.error_count)}</span>
+                </InfoField>
+                <InfoField label={t("actualCost")}>
+                  <span className="text-emerald-400">{fmtVnd(bot.stats.actual_cost)}</span>
+                </InfoField>
+                <InfoField label={t("billingCost")}>
+                  <span className="text-amber-400">{fmtVnd(bot.stats.scaled_cost)}</span>
+                </InfoField>
+                <InfoField label={t("avgResponseTime")}>
+                  {bot.stats.avg_response_time.toFixed(2)}s
+                </InfoField>
+              </div>
+            </section>
+
+            {/* Usage table */}
+            <section>
+              <SectionTitle>{t("usageByModel")}</SectionTitle>
+              {bot.usage.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t("noUsageData")}</p>
+              ) : (
+                <div className="rounded-lg border border-border overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="text-sm">{t("model")}</TableHead>
+                        <TableHead className="text-right text-sm">{t("inputTokens")}</TableHead>
+                        <TableHead className="text-right text-sm">{t("outputTokens")}</TableHead>
+                        <TableHead className="text-right text-sm">{t("totalTokens")}</TableHead>
+                        <TableHead className="text-right text-sm">{t("cacheTokens")}</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {bot.usage.map((u) => (
+                        <TableRow key={u.model_name}>
+                          <TableCell className="text-sm">
+                            <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                              {u.model_name}
+                            </code>
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-sm">{fmt(u.input_tokens)}</TableCell>
+                          <TableCell className="text-right font-mono text-sm">{fmt(u.output_tokens)}</TableCell>
+                          <TableCell className="text-right font-mono text-sm">{fmt(u.total_tokens)}</TableCell>
+                          <TableCell className="text-right font-mono text-sm">{fmt(u.cache_read_tokens)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              )}
+            </section>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>{t("close")}</Button>
+          {bot && (
+            <Button onClick={() => { onClose(); onEdit(bot.id); }}>
+              {t("edit")}
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Small shared UI helpers
+// ──────────────────────────────────────────────
+
+function SectionTitle({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="mb-3 font-mono text-xs uppercase tracking-widest text-muted-foreground">
+      {children}
+    </p>
+  );
+}
+
+function InfoField({
+  label,
+  mono,
+  children,
+}: {
+  label: string;
+  mono?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-lg bg-muted/30 p-1.5">
+      <p className="mb-0.5 text-[10px] text-muted-foreground">{label}</p>
+      <div className={mono ? "font-mono text-sm break-all" : "text-base"}>{children}</div>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
+// Main Page
+// ──────────────────────────────────────────────
+
+export default function AdminPage() {
+  const { t } = useLanguage();
+  const [params, setParams] = useState<ListParams>({
+    page: 1,
+    limit: 20,
+    status: "",
+    search: "",
+  });
+  const [search, setSearch] = useState("");
+
+  const [formOpen, setFormOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Chatbot | null>(null);
+
+  const { data, isLoading } = useChatbots(params);
+  const deleteMut = useDeleteChatbot();
+  const statusMut = useUpdateStatus();
+
+  const chatbots = data?.data ?? [];
+  const pagination = data?.pagination;
+
+  function openCreate() { setEditingId(null); setFormOpen(true); }
+  function openEdit(id: string) { setEditingId(id); setFormOpen(true); }
+
+  function doSearch() {
+    setParams((p) => ({ ...p, search, page: 1 }));
+  }
+
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    try {
+      await deleteMut.mutateAsync(deleteTarget.id);
+      toast.success(t("deleteSuccess"));
+      setDeleteTarget(null);
+    } catch (e) {
+      toast.error(t("deleteError") + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
+  async function handleStatusChange(id: string, status: ChatbotStatus) {
+    try {
+      await statusMut.mutateAsync({ id, status });
+      toast.success(`Changed to ${status}`);
+    } catch (e) {
+      toast.error("Error: " + (e instanceof Error ? e.message : String(e)));
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-background">
+      <main className="mx-auto max-w-7xl p-6">
+        {/* Overview */}
+        <OverviewCards />
+
+        {/* Toolbar */}
+        <div className="mb-5 flex flex-wrap items-center gap-3">
+          {/* Search */}
+          <div className="flex flex-1 items-center gap-2">
+            <Input
+              className="max-w-xs"
+              placeholder={t("searchPlaceholder")}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && doSearch()}
+            />
+            <Button variant="outline" onClick={doSearch}>{t("search")}</Button>
+          </div>
+
+          {/* Status filter chips */}
+          <div className="flex gap-1.5">
+            {(["", ...STATUSES] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setParams((p) => ({ ...p, status: s, page: 1 }))}
+                className={`rounded-full border px-3 py-1 font-mono text-xs font-semibold transition-colors
+                  ${params.status === s
+                    ? "border-violet-500/60 bg-violet-500/10 text-violet-400"
+                    : "border-border text-muted-foreground hover:border-border/80 hover:text-foreground"
+                  }`}
+              >
+                {s || t("all")}
+              </button>
+            ))}
+          </div>
+
+          <Button onClick={openCreate}>{t("createNew")}</Button>
+        </div>
+
+        {/* Table */}
+        <div className="rounded-xl border border-border overflow-hidden bg-card">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Chatbot</TableHead>
+                <TableHead>{t("statusColumn")}</TableHead>
+                <TableHead>{t("color")}</TableHead>
+                <TableHead>{t("createdColumn")}</TableHead>
+                <TableHead className="w-10" />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {isLoading &&
+                [...Array(6)].map((_, i) => (
+                  <TableRow key={i}>
+                    {[...Array(5)].map((_, j) => (
+                      <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+
+              {!isLoading && chatbots.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={5} className="py-16 text-center text-muted-foreground">
+                    {t("noChatbots")}
+                  </TableCell>
+                </TableRow>
+              )}
+
+              {chatbots.map((bot) => (
+                <TableRow
+                  key={bot.id}
+                  className="cursor-pointer hover:bg-muted/50"
+                  onClick={() => setDetailId(bot.id)}
+                >
+                  <TableCell>
+                    <div className="flex items-center gap-3">
+                      {bot.logo_url ? (
+                        <img src={bot.logo_url || ""} alt={bot.name} className="h-9 w-9 rounded-xl object-cover flex-shrink-0" />
+                      ) : (
+                        <Avatar name={bot.name} color={bot.primary_color} />
+                      )}
+                      <div>
+                        <p className="font-bold">{bot.name}</p>
+                        <p className="font-mono text-sm text-muted-foreground">{bot.email}</p>
+                      </div>
+                    </div>
+                  </TableCell>
+
+                  <TableCell>
+                    <Badge variant="outline" className={STATUS_CLS[bot.status]}>
+                      {bot.status}
+                    </Badge>
+                  </TableCell>
+
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className="h-4 w-4 rounded-full border border-white/10"
+                        style={{ background: bot.primary_color }}
+                      />
+                      <span className="font-mono text-sm text-muted-foreground">
+                        {bot.primary_color}
+                      </span>
+                    </div>
+                  </TableCell>
+
+                  <TableCell className="font-mono text-sm text-muted-foreground">
+                    {fmtDate(bot.created_at)}
+                  </TableCell>
+
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                          ⋯
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="w-44">
+                        <DropdownMenuItem onClick={() => setDetailId(bot.id)}>
+                          {t("viewDetails")}
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => openEdit(bot.id)}>
+                          {t("edit")}
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        {STATUSES.filter((s) => s !== bot.status).map((s) => (
+                          <DropdownMenuItem
+                            key={s}
+                            onClick={() => handleStatusChange(bot.id, s)}
+                          >
+                            {t("changeTo")} {s}
+                          </DropdownMenuItem>
+                        ))}
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          className="text-destructive focus:text-destructive"
+                          onClick={() => setDeleteTarget(bot)}
+                        >
+                          {t("delete")}
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+
+        {/* Pagination */}
+        {pagination && pagination.total_pages > 1 && (
+          <div className="mt-4 flex items-center justify-between text-sm text-muted-foreground">
+            <span>
+              {fmt(pagination.total)} chatbots — page {pagination.page}/{pagination.total_pages}
+            </span>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pagination.page <= 1}
+                onClick={() => setParams((p) => ({ ...p, page: p.page! - 1 }))}
+              >
+                {t("previous")}
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={pagination.page >= pagination.total_pages}
+                onClick={() => setParams((p) => ({ ...p, page: p.page! + 1 }))}
+              >
+                {t("next")}
+              </Button>
+            </div>
+          </div>
+        )}
+      </main>
+
+      {/* Dialogs */}
+      <FormDialog
+        open={formOpen}
+        editingId={editingId}
+        onClose={() => setFormOpen(false)}
+      />
+
+      <DetailDialog
+        id={detailId}
+        onClose={() => setDetailId(null)}
+        onEdit={(id) => { setDetailId(null); openEdit(id); }}
+      />
+
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(o) => !o && setDeleteTarget(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("confirmDelete")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("deleteConfirmText")}{" "}
+              <strong className="text-foreground">{deleteTarget?.name}</strong>?{" "}
+              {t("thisActionCannotBeUndone")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteMut.isPending}
+              onClick={handleDelete}
+            >
+              {deleteMut.isPending ? t("deletingDots") : t("delete")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+
