@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import { useLanguage } from "@/app/language-context";
 import {
@@ -189,33 +189,39 @@ function OverviewCards() {
 interface FormDialogProps {
   open: boolean;
   editingId: string | null;
+  editingBot: Chatbot | undefined;
   onClose: () => void;
+  onSaveComplete?: () => void;
 }
 
-function FormDialog({ open, editingId, onClose }: FormDialogProps) {
+function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: FormDialogProps) {
   const { t } = useLanguage();
   const [form, setForm] = useState<ChatbotFormData>(BLANK);
 
-  // Fetch detail for prefill when editing
-  const { data: detail, isLoading: detailLoading } = useChatbot(editingId);
+  // Debug logs
+  useEffect(() => {
+    if (editingId) {
+      console.log("FormDialog - editingId:", editingId);
+      console.log("FormDialog - editingBot found:", !!editingBot);
+      if (editingBot) console.log("FormDialog - editingBot data:", editingBot);
+    }
+  }, [editingId, editingBot]);
 
-  // Sync form when detail arrives
-  const prevId = useState<string | null>(null);
-  if (editingId && detail && prevId[0] !== editingId) {
-    prevId[1](editingId);
-    setForm({
-      name: detail.name,
-      email: detail.email,
-      logo_url: detail.logo_url ?? "",
-      primary_color: detail.primary_color,
-      status: detail.status,
-      description: detail.description ?? "",
-    });
-  }
-  if (!editingId && prevId[0] !== null) {
-    prevId[1](null);
-    setForm(BLANK);
-  }
+  // Sync form when editingBot arrives (from list)
+  useEffect(() => {
+    if (editingBot) {
+      setForm({
+        name: editingBot.name,
+        email: editingBot.email,
+        logo_url: editingBot.logo_url ?? "",
+        primary_color: editingBot.primary_color,
+        status: editingBot.status,
+        description: editingBot.description ?? "",
+      });
+    } else if (!editingId) {
+      setForm(BLANK);
+    }
+  }, [editingId, editingBot]);
 
   const createMut = useCreateChatbot();
   const updateMut = useUpdateChatbot(editingId ?? "");
@@ -234,16 +240,23 @@ function FormDialog({ open, editingId, onClose }: FormDialogProps) {
       logo_url: form.logo_url?.trim() || null,
       description: form.description?.trim() || null,
     };
+    console.log("handleSave called", { editingId, body });
     try {
       if (editingId) {
+        console.log("Updating chatbot:", editingId);
         await updateMut.mutateAsync(body);
+        console.log("Update successful");
         toast.success(t("updateSuccess"));
       } else {
+        console.log("Creating new chatbot");
         await createMut.mutateAsync(body);
+        console.log("Create successful");
         toast.success(t("createSuccess"));
       }
+      onSaveComplete?.();
       onClose();
     } catch (e) {
+      console.error("Save error:", e);
       toast.error("Error: " + (e instanceof Error ? e.message : String(e)));
     }
   }
@@ -257,93 +270,87 @@ function FormDialog({ open, editingId, onClose }: FormDialogProps) {
           </DialogTitle>
         </DialogHeader>
 
-        {editingId && detailLoading ? (
-          <div className="space-y-3 py-4">
-            {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-9 w-full" />)}
+        <div className="grid gap-4 py-1">
+          <div className="grid gap-1.5">
+            <Label>{t("nameLabel")}</Label>
+            <Input
+              value={form.name}
+              onChange={(e) => set("name", e.target.value)}
+              placeholder="Acme Corp"
+            />
           </div>
-        ) : (
-          <div className="grid gap-4 py-1">
+
+          <div className="grid gap-1.5">
+            <Label>{t("emailLabel")}</Label>
+            <Input
+              type="email"
+              value={form.email}
+              onChange={(e) => set("email", e.target.value)}
+              placeholder="admin@example.com"
+            />
+          </div>
+
+          <div className="grid gap-1.5">
+            <Label>{t("logoUrlLabel")}</Label>
+            <Input
+              value={form.logo_url ?? ""}
+              onChange={(e) => set("logo_url", e.target.value)}
+              placeholder="https://..."
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
             <div className="grid gap-1.5">
-              <Label>{t("nameLabel")}</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => set("name", e.target.value)}
-                placeholder="Acme Corp"
-              />
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label>{t("emailLabel")}</Label>
-              <Input
-                type="email"
-                value={form.email}
-                onChange={(e) => set("email", e.target.value)}
-                placeholder="admin@example.com"
-              />
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label>{t("logoUrlLabel")}</Label>
-              <Input
-                value={form.logo_url ?? ""}
-                onChange={(e) => set("logo_url", e.target.value)}
-                placeholder="https://..."
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div className="grid gap-1.5">
-                <Label>{t("primaryColorLabel")}</Label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={form.primary_color}
-                    onChange={(e) => set("primary_color", e.target.value)}
-                    className="h-9 w-12 cursor-pointer rounded border border-border bg-transparent p-1"
-                  />
-                  <Input
-                    className="font-mono text-sm"
-                    value={form.primary_color}
-                    onChange={(e) => set("primary_color", e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="grid gap-1.5">
-                <Label>{t("statusLabel")}</Label>
-                <Select
-                  value={form.status}
-                  onValueChange={(v) => set("status", v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STATUSES.map((s) => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+              <Label>{t("primaryColorLabel")}</Label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={form.primary_color}
+                  onChange={(e) => set("primary_color", e.target.value)}
+                  className="h-9 w-12 cursor-pointer rounded border border-border bg-transparent p-1"
+                />
+                <Input
+                  className="font-mono text-sm"
+                  value={form.primary_color}
+                  onChange={(e) => set("primary_color", e.target.value)}
+                />
               </div>
             </div>
 
             <div className="grid gap-1.5">
-              <Label>{t("descriptionLabel")}</Label>
-              <Textarea
-                rows={3}
-                value={form.description ?? ""}
-                onChange={(e) => set("description", e.target.value)}
-                placeholder={t("descriptionPlaceholder")}
-              />
+              <Label>{t("statusLabel")}</Label>
+              <Select
+                value={form.status}
+                onValueChange={(v) => set("status", v)}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {STATUSES.map((s) => (
+                    <SelectItem key={s} value={s}>{s}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
-        )}
+
+          <div className="grid gap-1.5">
+            <Label>{t("descriptionLabel")}</Label>
+            <Textarea
+              rows={3}
+              value={form.description ?? ""}
+              onChange={(e) => set("description", e.target.value)}
+              placeholder={t("descriptionPlaceholder")}
+            />
+          </div>
+        </div>
 
         <DialogFooter>
           <Button variant="outline" disabled={isPending} onClick={onClose}>
             {t("cancel")}
           </Button>
-          <Button disabled={isPending || (!!editingId && detailLoading)} onClick={handleSave}>
+          <Button disabled={isPending || (!!editingId && !editingBot)} onClick={handleSave}>
             {isPending ? t("savingDots") : editingId ? t("saveChanges") : t("create")}
           </Button>
         </DialogFooter>
@@ -546,6 +553,16 @@ export default function AdminPage() {
   function openCreate() { setEditingId(null); setFormOpen(true); }
   function openEdit(id: string) { setEditingId(id); setFormOpen(true); }
 
+  const editingBot = editingId ? chatbots.find(b => b.id === editingId) : undefined;
+
+  useEffect(() => {
+    if (editingId) {
+      console.log("AdminPage - editingId:", editingId);
+      console.log("AdminPage - chatbots count:", chatbots.length);
+      console.log("AdminPage - editingBot found:", !!editingBot);
+    }
+  }, [editingId, editingBot, chatbots]);
+
   function doSearch() {
     setParams((p) => ({ ...p, search, page: 1 }));
   }
@@ -556,6 +573,8 @@ export default function AdminPage() {
       await deleteMut.mutateAsync(deleteTarget.id);
       toast.success(t("deleteSuccess"));
       setDeleteTarget(null);
+      // Reset to show updated list
+      setParams({ page: 1, limit: 20, status: "", search: "" });
     } catch (e) {
       toast.error(t("deleteError") + (e instanceof Error ? e.message : String(e)));
     }
@@ -565,6 +584,8 @@ export default function AdminPage() {
     try {
       await statusMut.mutateAsync({ id, status });
       toast.success(`Changed to ${status}`);
+      // Reset to show updated list
+      setParams({ page: 1, limit: 20, status: "", search: "" });
     } catch (e) {
       toast.error("Error: " + (e instanceof Error ? e.message : String(e)));
     }
@@ -753,7 +774,11 @@ export default function AdminPage() {
       <FormDialog
         open={formOpen}
         editingId={editingId}
+        editingBot={editingBot}
         onClose={() => setFormOpen(false)}
+        onSaveComplete={() => {
+          setParams({ page: 1, limit: 20, status: "", search: "" });
+        }}
       />
 
       <DetailDialog
