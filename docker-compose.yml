@@ -1,0 +1,18 @@
+services:
+  admin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chatdb-admin
+    restart: always
+    image: chatdb-admin:latest
+    environment:
+      - NODE_ENV=production
+    ports:
+      - "3333:3333"
+    networks:
+      - chat-db
+
+networks:
+  chat-db:
+    external: true
