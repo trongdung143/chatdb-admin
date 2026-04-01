@@ -8,7 +8,7 @@ export const api = axios.create({
 // ── Types ──────────────────────────────────────────────────────────────────
 
 export type ChatbotStatus = "Active" | "Pending" | "Disabled";
-
+export type PromptValue = { human: string; system: string };
 export interface Chatbot {
   id: string;
   name: string;
@@ -17,7 +17,7 @@ export interface Chatbot {
   primary_color: string;
   description: string | null;
   status: ChatbotStatus;
-  prompts: Record<string, string>;
+  prompts: Record<string, PromptValue>;
   structure_schema: string;
   created_at: string | null;
   updated_at: string | null;
@@ -64,13 +64,12 @@ export interface ChatbotFormData {
   name: string;
   email: string;
   logo_url?: string | null;
-  primary_color?: string;
-  status?: ChatbotStatus;
+  primary_color: string;
+  status: ChatbotStatus;
   description?: string | null;
-  prompts?: Record<string, string>;
+  prompts: Record<string, PromptValue>;
   structure_schema?: string;
 }
-
 export interface OverviewData {
   chatbots: {
     total: number;

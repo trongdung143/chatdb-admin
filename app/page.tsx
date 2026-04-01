@@ -189,19 +189,26 @@ function OverviewCards() {
 // Prompts Editor
 // ──────────────────────────────────────────────
 
-type PromptEntry = { key: string; value: string };
+type PromptValue = { human: string; system: string };
+type PromptEntry = { key: string; value: PromptValue };
 
-function toEntries(obj: Record<string, string>): PromptEntry[] {
-  return Object.entries(obj).map(([key, value]) => ({ key, value }));
+function toEntries(obj: Record<string, PromptValue>): PromptEntry[] {
+  return Object.entries(obj).map(([key, value]) => ({
+    key,
+    value: {
+      human: value?.human ?? "",
+      system: value?.system ?? "",
+    },
+  }));
 }
 
-function fromEntries(entries: PromptEntry[]): Record<string, string> {
+function fromEntries(entries: PromptEntry[]): Record<string, PromptValue> {
   return Object.fromEntries(entries.map(({ key, value }) => [key, value]));
 }
 
 interface PromptsEditorProps {
-  prompts: Record<string, string>;
-  onChange: (prompts: Record<string, string>) => void;
+  prompts: Record<string, PromptValue>;
+  onChange: (prompts: Record<string, PromptValue>) => void;
 }
 
 function PromptsEditor({ prompts, onChange }: PromptsEditorProps) {
@@ -214,14 +221,18 @@ function PromptsEditor({ prompts, onChange }: PromptsEditorProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(prompts)]);
 
-  function update(index: number, field: "key" | "value", val: string) {
-    const next = entries.map((e, i) => (i === index ? { ...e, [field]: val } : e));
+  function update(index: number, field: "key" | "human" | "system", val: string) {
+    const next = entries.map((e, i) => {
+      if (i !== index) return e;
+      if (field === "key") return { ...e, key: val };
+      return { ...e, value: { ...e.value, [field]: val } };
+    });
     setEntries(next);
     onChange(fromEntries(next));
   }
 
   function addRow() {
-    const next = [...entries, { key: "", value: "" }];
+    const next = [...entries, { key: "", value: { human: "", system: "" } }];
     setEntries(next);
     onChange(fromEntries(next));
   }
@@ -267,16 +278,31 @@ function PromptsEditor({ prompts, onChange }: PromptsEditorProps) {
                   ✕
                 </Button>
               </div>
-              {/* Value row */}
+
+              {/* System row */}
               <div>
                 <Label className="mb-1 block text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                  {t("promptValue")}
+                  System
                 </Label>
                 <Textarea
-                  rows={3}
-                  value={entry.value}
-                  onChange={(e) => update(i, "value", e.target.value)}
-                  placeholder={t("promptValuePlaceholder")}
+                  rows={2}
+                  value={entry.value.system}
+                  onChange={(e) => update(i, "system", e.target.value)}
+                  placeholder="System prompt..."
+                  className="resize-y text-sm font-mono leading-relaxed"
+                />
+              </div>
+
+              {/* Human row */}
+              <div>
+                <Label className="mb-1 block text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                  Human
+                </Label>
+                <Textarea
+                  rows={2}
+                  value={entry.value.human}
+                  onChange={(e) => update(i, "human", e.target.value)}
+                  placeholder="Human prompt..."
                   className="resize-y text-sm font-mono leading-relaxed"
                 />
               </div>
@@ -401,7 +427,7 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-[95vw] sm:max-w-xl md:max-w-2xl">
+      <DialogContent className="max-w-[95vw] sm:max-w-xl md:max-w-2xl" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>
             {editingId ? t("editChatbot") : t("createNewChatbot")}
@@ -431,79 +457,81 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
 
         {/* General tab */}
         {activeTab === "general" && (
-          <div className="grid gap-4 py-1">
-            <div className="grid gap-1.5">
-              <Label>{t("nameLabel")}</Label>
-              <Input
-                value={form.name}
-                onChange={(e) => set("name", e.target.value)}
-                placeholder="Acme Corp"
-              />
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label>{t("emailLabel")}</Label>
-              <Input
-                type="email"
-                value={form.email}
-                onChange={(e) => set("email", e.target.value)}
-                placeholder="admin@example.com"
-              />
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label>{t("logoUrlLabel")}</Label>
-              <Input
-                value={form.logo_url ?? ""}
-                onChange={(e) => set("logo_url", e.target.value)}
-                placeholder="https://..."
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
+          <div className="max-h-[420px] overflow-y-auto pr-1">
+            <div className="grid gap-4 py-1">
               <div className="grid gap-1.5">
-                <Label>{t("primaryColorLabel")}</Label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="color"
-                    value={form.primary_color}
-                    onChange={(e) => set("primary_color", e.target.value)}
-                    className="h-9 w-12 cursor-pointer rounded border border-border bg-transparent p-1"
-                  />
-                  <Input
-                    className="font-mono text-sm"
-                    value={form.primary_color}
-                    onChange={(e) => set("primary_color", e.target.value)}
-                  />
+                <Label>{t("nameLabel")}</Label>
+                <Input
+                  value={form.name}
+                  onChange={(e) => set("name", e.target.value)}
+                  placeholder="Acme Corp"
+                />
+              </div>
+
+              <div className="grid gap-1.5">
+                <Label>{t("emailLabel")}</Label>
+                <Input
+                  type="email"
+                  value={form.email}
+                  onChange={(e) => set("email", e.target.value)}
+                  placeholder="admin@example.com"
+                />
+              </div>
+
+              <div className="grid gap-1.5">
+                <Label>{t("logoUrlLabel")}</Label>
+                <Input
+                  value={form.logo_url ?? ""}
+                  onChange={(e) => set("logo_url", e.target.value)}
+                  placeholder="https://..."
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="grid gap-1.5">
+                  <Label>{t("primaryColorLabel")}</Label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="color"
+                      value={form.primary_color}
+                      onChange={(e) => set("primary_color", e.target.value)}
+                      className="h-9 w-12 cursor-pointer rounded border border-border bg-transparent p-1"
+                    />
+                    <Input
+                      className="font-mono text-sm"
+                      value={form.primary_color}
+                      onChange={(e) => set("primary_color", e.target.value)}
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-1.5">
+                  <Label>{t("statusLabel")}</Label>
+                  <Select
+                    value={form.status}
+                    onValueChange={(v) => set("status", v)}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {STATUSES.map((s) => (
+                        <SelectItem key={s} value={s}>{s}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
 
               <div className="grid gap-1.5">
-                <Label>{t("statusLabel")}</Label>
-                <Select
-                  value={form.status}
-                  onValueChange={(v) => set("status", v)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STATUSES.map((s) => (
-                      <SelectItem key={s} value={s}>{s}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>{t("descriptionLabel")}</Label>
+                <Textarea
+                  rows={3}
+                  value={form.description ?? ""}
+                  onChange={(e) => set("description", e.target.value)}
+                  placeholder={t("descriptionPlaceholder")}
+                />
               </div>
-            </div>
-
-            <div className="grid gap-1.5">
-              <Label>{t("descriptionLabel")}</Label>
-              <Textarea
-                rows={3}
-                value={form.description ?? ""}
-                onChange={(e) => set("description", e.target.value)}
-                placeholder={t("descriptionPlaceholder")}
-              />
             </div>
           </div>
         )}
@@ -520,7 +548,7 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
 
         {/* Schema tab */}
         {activeTab === "schema" && (
-          <div className="py-1 space-y-2">
+          <div className="max-h-[420px] overflow-y-auto pr-1 py-1 space-y-2">
             <p className="text-xs text-muted-foreground">{t("structureSchemaDescription")}</p>
             <Textarea
               rows={14}
@@ -559,11 +587,13 @@ function DetailDialog({ id, onClose, onEdit }: DetailDialogProps) {
   const { t } = useLanguage();
   const { data: bot, isLoading, error } = useChatbot(id);
 
-  const promptEntries = bot ? Object.entries(bot.prompts ?? {}) : [];
+  const promptEntries = bot
+    ? Object.entries(bot.prompts ?? {}) as [string, PromptValue][]
+    : [];
 
   return (
     <Dialog open={!!id} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-screen w-[95vw] !max-w-none overflow-hidden p-4">
+      <DialogContent className="max-h-screen w-[95vw] !max-w-none overflow-hidden p-4" aria-describedby={undefined}>
         <DialogHeader>
           <DialogTitle>{isLoading ? t("loading") : bot?.name ?? t("details")}</DialogTitle>
           <DialogDescription>{t("detailDescription")}</DialogDescription>
@@ -608,48 +638,6 @@ function DetailDialog({ id, onClose, onEdit }: DetailDialogProps) {
               </div>
               {bot.description && (
                 <p className="mt-3 text-sm text-muted-foreground">{bot.description}</p>
-              )}
-            </section>
-
-            {/* Prompts section */}
-            <section>
-              <SectionTitle>
-                {t("promptsTab")}
-                {promptEntries.length > 0 && (
-                  <span className="ml-2 rounded-full bg-violet-500/20 px-1.5 py-0.5 text-violet-400">
-                    {promptEntries.length}
-                  </span>
-                )}
-              </SectionTitle>
-              {promptEntries.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t("noPrompts")}</p>
-              ) : (
-                <div className="space-y-2">
-                  {promptEntries.map(([key, value]) => (
-                    <div key={key} className="rounded-lg border border-border bg-muted/20 p-3">
-                      <p className="mb-1 font-mono text-[11px] font-semibold uppercase tracking-wider text-violet-400">
-                        {key}
-                      </p>
-                      <p className="whitespace-pre-wrap font-mono text-xs text-muted-foreground leading-relaxed">
-                        {value}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </section>
-
-            {/* Structure Schema section */}
-            <section>
-              <SectionTitle>{t("schemaTab")}</SectionTitle>
-              {!bot.structure_schema?.trim() ? (
-                <p className="text-sm text-muted-foreground">—</p>
-              ) : (
-                <div className="rounded-lg border border-border bg-muted/20 p-3">
-                  <p className="whitespace-pre-wrap font-mono text-xs text-muted-foreground leading-relaxed">
-                    {bot.structure_schema}
-                  </p>
-                </div>
               )}
             </section>
 
@@ -706,6 +694,60 @@ function DetailDialog({ id, onClose, onEdit }: DetailDialogProps) {
                       ))}
                     </TableBody>
                   </Table>
+                </div>
+              )}
+            </section>
+            {/* Prompts section */}
+            <section>
+              <SectionTitle>
+                {t("promptsTab")}
+                {promptEntries.length > 0 && (
+                  <span className="ml-2 rounded-full bg-violet-500/20 px-1.5 py-0.5 text-violet-400">
+                    {promptEntries.length}
+                  </span>
+                )}
+              </SectionTitle>
+              {promptEntries.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t("noPrompts")}</p>
+              ) : (
+                <div className="space-y-2">
+                  {promptEntries.map(([key, value]) => (
+                    <div key={key} className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                      <p className="font-mono text-[11px] font-semibold uppercase tracking-wider text-violet-400">
+                        {key}
+                      </p>
+                      <div>
+                        <span className="mb-1.5 inline-flex items-center rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-sky-400">
+                          System
+                        </span>
+                        <p className="whitespace-pre-wrap font-mono text-xs text-muted-foreground leading-relaxed">
+                          {value?.system || "—"}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="mb-1.5 inline-flex items-center rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                          Human
+                        </span>
+                        <p className="whitespace-pre-wrap font-mono text-xs text-muted-foreground leading-relaxed">
+                          {value?.human || "—"}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Structure Schema section */}
+            <section>
+              <SectionTitle>{t("schemaTab")}</SectionTitle>
+              {!bot.structure_schema?.trim() ? (
+                <p className="text-sm text-muted-foreground">—</p>
+              ) : (
+                <div className="rounded-lg border border-border bg-muted/20 p-3">
+                  <p className="whitespace-pre-wrap font-mono text-xs text-muted-foreground leading-relaxed">
+                    {bot.structure_schema}
+                  </p>
                 </div>
               )}
             </section>

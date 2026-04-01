@@ -24,7 +24,7 @@ export const translations = {
         descriptionPlaceholder: "Mô tả ngắn về chatbot...",
 
         // Tabs
-        generalTab: "Thông tin",
+        generalTab: "Thông tin chung",
         promptsTab: "Prompts",
         schemaTab: "Schema",
 
