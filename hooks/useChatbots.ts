@@ -10,6 +10,7 @@ import {
   fetchOverview,
   createChatbot,
   updateChatbot,
+  updateChatbotPrompts,
   deleteChatbot,
   updateChatbotStatus,
   type ListParams,
@@ -64,12 +65,8 @@ export function useCreateChatbot() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: ChatbotFormData) => createChatbot(body),
-    onSuccess: (response) => {
-      console.log("Create success, invalidating queries...", response);
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["chatbots"] });
-    },
-    onError: (error) => {
-      console.error("Create error:", error);
     },
   });
 }
@@ -78,12 +75,20 @@ export function useUpdateChatbot(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (body: Partial<ChatbotFormData>) => updateChatbot(id, body),
-    onSuccess: (response) => {
-      console.log("Update success, invalidating queries...", response);
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["chatbots"] });
     },
-    onError: (error) => {
-      console.error("Update error:", error);
+  });
+}
+
+export function useUpdateChatbotPrompts(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (prompts: Record<string, string>) =>
+      updateChatbotPrompts(id, prompts),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["chatbots", "detail", id] });
+      qc.invalidateQueries({ queryKey: ["chatbots", "list"] });
     },
   });
 }
@@ -93,11 +98,7 @@ export function useDeleteChatbot() {
   return useMutation({
     mutationFn: (id: string) => deleteChatbot(id),
     onSuccess: () => {
-      console.log("Delete success, invalidating queries...");
       qc.invalidateQueries({ queryKey: ["chatbots"] });
-    },
-    onError: (error) => {
-      console.error("Delete error:", error);
     },
   });
 }
@@ -108,11 +109,7 @@ export function useUpdateStatus() {
     mutationFn: ({ id, status }: { id: string; status: ChatbotStatus }) =>
       updateChatbotStatus(id, status),
     onSuccess: () => {
-      console.log("Status update success, invalidating queries...");
       qc.invalidateQueries({ queryKey: ["chatbots"] });
-    },
-    onError: (error) => {
-      console.error("Status update error:", error);
     },
   });
 }

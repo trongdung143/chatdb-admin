@@ -17,6 +17,8 @@ export interface Chatbot {
   primary_color: string;
   description: string | null;
   status: ChatbotStatus;
+  prompts: Record<string, string>;
+  structure_schema: string;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -65,6 +67,8 @@ export interface ChatbotFormData {
   primary_color?: string;
   status?: ChatbotStatus;
   description?: string | null;
+  prompts?: Record<string, string>;
+  structure_schema?: string;
 }
 
 export interface OverviewData {
@@ -108,45 +112,45 @@ export async function fetchChatbot(id: string) {
 }
 
 export async function createChatbot(body: ChatbotFormData) {
-  console.log("createChatbot called", body);
   const { data } = await api.post<{ success: boolean; message?: string }>(
     "/chatbots",
     body
   );
-  console.log("createChatbot response:", data);
   ok(data);
   return data;
 }
 
 export async function updateChatbot(id: string, body: Partial<ChatbotFormData>) {
-  console.log("updateChatbot called", { id, body });
-  console.log("API baseURL:", api.defaults.baseURL);
   const { data } = await api.patch<{ success: boolean; message?: string }>(
     `/chatbots/${id}`,
     body
   );
-  console.log("updateChatbot response:", data);
+  ok(data);
+  return data;
+}
+
+export async function updateChatbotPrompts(id: string, prompts: Record<string, string>) {
+  const { data } = await api.patch<{ success: boolean; message?: string }>(
+    `/chatbots/${id}/prompts`,
+    { prompts }
+  );
   ok(data);
   return data;
 }
 
 export async function deleteChatbot(id: string) {
-  console.log("deleteChatbot called", { id });
   const { data } = await api.delete<{ success: boolean; message?: string }>(
     `/chatbots/${id}`
   );
-  console.log("deleteChatbot response:", data);
   ok(data);
   return data;
 }
 
 export async function updateChatbotStatus(id: string, status: ChatbotStatus) {
-  console.log("updateChatbotStatus called", { id, status });
   const { data } = await api.patch<{ success: boolean; message?: string }>(
     `/chatbots/${id}/status`,
     { status }
   );
-  console.log("updateChatbotStatus response:", data);
   ok(data);
   return data;
 }

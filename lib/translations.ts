@@ -23,6 +23,29 @@ export const translations = {
         descriptionLabel: "Mô tả",
         descriptionPlaceholder: "Mô tả ngắn về chatbot...",
 
+        // Tabs
+        generalTab: "Thông tin",
+        promptsTab: "Prompts",
+        schemaTab: "Schema",
+
+        // Prompts
+        promptsDescription: "Quản lý các prompt theo key. Mỗi key là một vai trò hoặc ngữ cảnh riêng.",
+        addPrompt: "+ Thêm prompt",
+        promptKey: "Key",
+        promptValue: "Nội dung prompt",
+        promptKeyPlaceholder: "vd: system, greeting, fallback...",
+        promptValuePlaceholder: "Nhập nội dung prompt...",
+        promptKeyRequired: "Key không được để trống",
+        promptKeyDuplicate: "Key này đã tồn tại",
+        noPrompts: "Chưa có prompt nào. Nhấn \"+ Thêm prompt\" để bắt đầu.",
+        promptsSaved: "Lưu prompts thành công!",
+        removePrompt: "Xóa",
+
+        // Schema
+        structureSchemaLabel: "Structure Schema",
+        structureSchemaPlaceholder: "Nhập schema dạng text...",
+        structureSchemaDescription: "Định nghĩa cấu trúc dữ liệu mà chatbot sẽ trả về.",
+
         // Detail Dialog
         detailDescription: "Thông tin chi tiết về chatbot",
         basicInfo: "Thông tin cơ bản",
@@ -106,6 +129,29 @@ export const translations = {
         statusLabel: "Status",
         descriptionLabel: "Description",
         descriptionPlaceholder: "Brief description of the chatbot...",
+
+        // Tabs
+        generalTab: "General",
+        promptsTab: "Prompts",
+        schemaTab: "Schema",
+
+        // Prompts
+        promptsDescription: "Manage prompts by key. Each key represents a role or context.",
+        addPrompt: "+ Add Prompt",
+        promptKey: "Key",
+        promptValue: "Prompt Content",
+        promptKeyPlaceholder: "e.g. system, greeting, fallback...",
+        promptValuePlaceholder: "Enter prompt content...",
+        promptKeyRequired: "Key cannot be empty",
+        promptKeyDuplicate: "This key already exists",
+        noPrompts: "No prompts yet. Click \"+ Add Prompt\" to get started.",
+        promptsSaved: "Prompts saved successfully!",
+        removePrompt: "Remove",
+
+        // Schema
+        structureSchemaLabel: "Structure Schema",
+        structureSchemaPlaceholder: "Enter schema as text...",
+        structureSchemaDescription: "Defines the data structure the chatbot will return.",
 
         // Detail Dialog
         detailDescription: "Detailed information about the chatbot",

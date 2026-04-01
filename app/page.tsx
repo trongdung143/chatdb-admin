@@ -9,6 +9,7 @@ import {
   useOverview,
   useCreateChatbot,
   useUpdateChatbot,
+  useUpdateChatbotPrompts,
   useDeleteChatbot,
   useUpdateStatus,
 } from "@/hooks/useChatbots";
@@ -96,6 +97,8 @@ const BLANK: ChatbotFormData = {
   primary_color: "#6c63ff",
   status: "Pending",
   description: "",
+  prompts: {},
+  structure_schema: "",
 };
 
 // ──────────────────────────────────────────────
@@ -183,8 +186,123 @@ function OverviewCards() {
 }
 
 // ──────────────────────────────────────────────
+// Prompts Editor
+// ──────────────────────────────────────────────
+
+type PromptEntry = { key: string; value: string };
+
+function toEntries(obj: Record<string, string>): PromptEntry[] {
+  return Object.entries(obj).map(([key, value]) => ({ key, value }));
+}
+
+function fromEntries(entries: PromptEntry[]): Record<string, string> {
+  return Object.fromEntries(entries.map(({ key, value }) => [key, value]));
+}
+
+interface PromptsEditorProps {
+  prompts: Record<string, string>;
+  onChange: (prompts: Record<string, string>) => void;
+}
+
+function PromptsEditor({ prompts, onChange }: PromptsEditorProps) {
+  const { t } = useLanguage();
+  const [entries, setEntries] = useState<PromptEntry[]>(() => toEntries(prompts));
+
+  // Sync when parent resets prompts (e.g. dialog open)
+  useEffect(() => {
+    setEntries(toEntries(prompts));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(prompts)]);
+
+  function update(index: number, field: "key" | "value", val: string) {
+    const next = entries.map((e, i) => (i === index ? { ...e, [field]: val } : e));
+    setEntries(next);
+    onChange(fromEntries(next));
+  }
+
+  function addRow() {
+    const next = [...entries, { key: "", value: "" }];
+    setEntries(next);
+    onChange(fromEntries(next));
+  }
+
+  function removeRow(index: number) {
+    const next = entries.filter((_, i) => i !== index);
+    setEntries(next);
+    onChange(fromEntries(next));
+  }
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">{t("promptsDescription")}</p>
+
+      {entries.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border bg-muted/20 py-8 text-center text-sm text-muted-foreground">
+          {t("noPrompts")}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {entries.map((entry, i) => (
+            <div key={i} className="group rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+              {/* Key row */}
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <Label className="mb-1 block text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                    {t("promptKey")}
+                  </Label>
+                  <Input
+                    value={entry.key}
+                    onChange={(e) => update(i, "key", e.target.value)}
+                    placeholder={t("promptKeyPlaceholder")}
+                    className="font-mono text-sm h-8"
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="mt-5 h-8 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => removeRow(i)}
+                >
+                  ✕
+                </Button>
+              </div>
+              {/* Value row */}
+              <div>
+                <Label className="mb-1 block text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                  {t("promptValue")}
+                </Label>
+                <Textarea
+                  rows={3}
+                  value={entry.value}
+                  onChange={(e) => update(i, "value", e.target.value)}
+                  placeholder={t("promptValuePlaceholder")}
+                  className="resize-y text-sm font-mono leading-relaxed"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="w-full border-dashed text-muted-foreground hover:text-foreground"
+        onClick={addRow}
+      >
+        {t("addPrompt")}
+      </Button>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
 // Form Dialog
 // ──────────────────────────────────────────────
+
+type FormTab = "general" | "prompts" | "schema";
 
 interface FormDialogProps {
   open: boolean;
@@ -197,15 +315,7 @@ interface FormDialogProps {
 function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: FormDialogProps) {
   const { t } = useLanguage();
   const [form, setForm] = useState<ChatbotFormData>(BLANK);
-
-  // Debug logs
-  useEffect(() => {
-    if (editingId) {
-      console.log("FormDialog - editingId:", editingId);
-      console.log("FormDialog - editingBot found:", !!editingBot);
-      if (editingBot) console.log("FormDialog - editingBot data:", editingBot);
-    }
-  }, [editingId, editingBot]);
+  const [activeTab, setActiveTab] = useState<FormTab>("general");
 
   // Sync form when editingBot arrives (from list)
   useEffect(() => {
@@ -217,15 +327,23 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
         primary_color: editingBot.primary_color,
         status: editingBot.status,
         description: editingBot.description ?? "",
+        prompts: editingBot.prompts ?? {},
+        structure_schema: editingBot.structure_schema ?? "",
       });
     } else if (!editingId) {
       setForm(BLANK);
     }
   }, [editingId, editingBot]);
 
+  // Reset tab when dialog opens
+  useEffect(() => {
+    if (open) setActiveTab("general");
+  }, [open]);
+
   const createMut = useCreateChatbot();
   const updateMut = useUpdateChatbot(editingId ?? "");
-  const isPending = createMut.isPending || updateMut.isPending;
+  const promptsMut = useUpdateChatbotPrompts(editingId ?? "");
+  const isPending = createMut.isPending || updateMut.isPending || promptsMut.isPending;
 
   const set = (k: keyof ChatbotFormData, v: string) =>
     setForm((f) => ({ ...f, [k]: v }));
@@ -235,31 +353,51 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
       toast.error(t("nameRequired"));
       return;
     }
+
+    // Validate prompt keys — no empty keys
+    const entries = Object.entries(form.prompts ?? {});
+    const hasEmptyKey = entries.some(([k]) => !k.trim());
+    if (hasEmptyKey) {
+      setActiveTab("prompts");
+      toast.error(t("promptKeyRequired"));
+      return;
+    }
+    const keys = entries.map(([k]) => k.trim());
+    if (new Set(keys).size !== keys.length) {
+      setActiveTab("prompts");
+      toast.error(t("promptKeyDuplicate"));
+      return;
+    }
+
     const body = {
       ...form,
       logo_url: form.logo_url?.trim() || null,
       description: form.description?.trim() || null,
+      prompts: form.prompts ?? {},
     };
-    console.log("handleSave called", { editingId, body });
+
     try {
       if (editingId) {
-        console.log("Updating chatbot:", editingId);
         await updateMut.mutateAsync(body);
-        console.log("Update successful");
         toast.success(t("updateSuccess"));
       } else {
-        console.log("Creating new chatbot");
         await createMut.mutateAsync(body);
-        console.log("Create successful");
         toast.success(t("createSuccess"));
       }
       onSaveComplete?.();
       onClose();
     } catch (e) {
-      console.error("Save error:", e);
       toast.error("Error: " + (e instanceof Error ? e.message : String(e)));
     }
   }
+
+  const TAB_CLS = (tab: FormTab) =>
+    `px-4 py-2 text-sm font-medium border-b-2 transition-colors ${activeTab === tab
+      ? "border-violet-500 text-violet-400"
+      : "border-transparent text-muted-foreground hover:text-foreground"
+    }`;
+
+  const promptCount = Object.keys(form.prompts ?? {}).length;
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
@@ -270,81 +408,129 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid gap-4 py-1">
-          <div className="grid gap-1.5">
-            <Label>{t("nameLabel")}</Label>
-            <Input
-              value={form.name}
-              onChange={(e) => set("name", e.target.value)}
-              placeholder="Acme Corp"
-            />
-          </div>
+        {/* Tabs */}
+        <div className="flex border-b border-border -mx-1 mb-1">
+          <button className={TAB_CLS("general")} onClick={() => setActiveTab("general")}>
+            {t("generalTab")}
+          </button>
+          <button className={TAB_CLS("prompts")} onClick={() => setActiveTab("prompts")}>
+            {t("promptsTab")}
+            {promptCount > 0 && (
+              <span className="ml-2 rounded-full bg-violet-500/20 px-1.5 py-0.5 font-mono text-[10px] text-violet-400">
+                {promptCount}
+              </span>
+            )}
+          </button>
+          <button className={TAB_CLS("schema")} onClick={() => setActiveTab("schema")}>
+            {t("schemaTab")}
+            {(form.structure_schema ?? "").trim().length > 0 && (
+              <span className="ml-2 inline-block h-1.5 w-1.5 rounded-full bg-cyan-400" />
+            )}
+          </button>
+        </div>
 
-          <div className="grid gap-1.5">
-            <Label>{t("emailLabel")}</Label>
-            <Input
-              type="email"
-              value={form.email}
-              onChange={(e) => set("email", e.target.value)}
-              placeholder="admin@example.com"
-            />
-          </div>
-
-          <div className="grid gap-1.5">
-            <Label>{t("logoUrlLabel")}</Label>
-            <Input
-              value={form.logo_url ?? ""}
-              onChange={(e) => set("logo_url", e.target.value)}
-              placeholder="https://..."
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
+        {/* General tab */}
+        {activeTab === "general" && (
+          <div className="grid gap-4 py-1">
             <div className="grid gap-1.5">
-              <Label>{t("primaryColorLabel")}</Label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="color"
-                  value={form.primary_color}
-                  onChange={(e) => set("primary_color", e.target.value)}
-                  className="h-9 w-12 cursor-pointer rounded border border-border bg-transparent p-1"
-                />
-                <Input
-                  className="font-mono text-sm"
-                  value={form.primary_color}
-                  onChange={(e) => set("primary_color", e.target.value)}
-                />
+              <Label>{t("nameLabel")}</Label>
+              <Input
+                value={form.name}
+                onChange={(e) => set("name", e.target.value)}
+                placeholder="Acme Corp"
+              />
+            </div>
+
+            <div className="grid gap-1.5">
+              <Label>{t("emailLabel")}</Label>
+              <Input
+                type="email"
+                value={form.email}
+                onChange={(e) => set("email", e.target.value)}
+                placeholder="admin@example.com"
+              />
+            </div>
+
+            <div className="grid gap-1.5">
+              <Label>{t("logoUrlLabel")}</Label>
+              <Input
+                value={form.logo_url ?? ""}
+                onChange={(e) => set("logo_url", e.target.value)}
+                placeholder="https://..."
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="grid gap-1.5">
+                <Label>{t("primaryColorLabel")}</Label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={form.primary_color}
+                    onChange={(e) => set("primary_color", e.target.value)}
+                    className="h-9 w-12 cursor-pointer rounded border border-border bg-transparent p-1"
+                  />
+                  <Input
+                    className="font-mono text-sm"
+                    value={form.primary_color}
+                    onChange={(e) => set("primary_color", e.target.value)}
+                  />
+                </div>
+              </div>
+
+              <div className="grid gap-1.5">
+                <Label>{t("statusLabel")}</Label>
+                <Select
+                  value={form.status}
+                  onValueChange={(v) => set("status", v)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {STATUSES.map((s) => (
+                      <SelectItem key={s} value={s}>{s}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
 
             <div className="grid gap-1.5">
-              <Label>{t("statusLabel")}</Label>
-              <Select
-                value={form.status}
-                onValueChange={(v) => set("status", v)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {STATUSES.map((s) => (
-                    <SelectItem key={s} value={s}>{s}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <Label>{t("descriptionLabel")}</Label>
+              <Textarea
+                rows={3}
+                value={form.description ?? ""}
+                onChange={(e) => set("description", e.target.value)}
+                placeholder={t("descriptionPlaceholder")}
+              />
             </div>
           </div>
+        )}
 
-          <div className="grid gap-1.5">
-            <Label>{t("descriptionLabel")}</Label>
-            <Textarea
-              rows={3}
-              value={form.description ?? ""}
-              onChange={(e) => set("description", e.target.value)}
-              placeholder={t("descriptionPlaceholder")}
+        {/* Prompts tab */}
+        {activeTab === "prompts" && (
+          <div className="max-h-[420px] overflow-y-auto py-1 pr-1">
+            <PromptsEditor
+              prompts={form.prompts ?? {}}
+              onChange={(p) => setForm((f) => ({ ...f, prompts: p }))}
             />
           </div>
-        </div>
+        )}
+
+        {/* Schema tab */}
+        {activeTab === "schema" && (
+          <div className="py-1 space-y-2">
+            <p className="text-xs text-muted-foreground">{t("structureSchemaDescription")}</p>
+            <Textarea
+              rows={14}
+              value={form.structure_schema ?? ""}
+              onChange={(e) => setForm((f) => ({ ...f, structure_schema: e.target.value }))}
+              placeholder={t("structureSchemaPlaceholder")}
+              className="resize-y font-mono text-sm leading-relaxed"
+            />
+          </div>
+        )}
 
         <DialogFooter>
           <Button variant="outline" disabled={isPending} onClick={onClose}>
@@ -373,6 +559,8 @@ function DetailDialog({ id, onClose, onEdit }: DetailDialogProps) {
   const { t } = useLanguage();
   const { data: bot, isLoading, error } = useChatbot(id);
 
+  const promptEntries = bot ? Object.entries(bot.prompts ?? {}) : [];
+
   return (
     <Dialog open={!!id} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-screen w-[95vw] !max-w-none overflow-hidden p-4">
@@ -394,7 +582,7 @@ function DetailDialog({ id, onClose, onEdit }: DetailDialogProps) {
         )}
 
         {bot && (
-          <div className="max-h-96 overflow-y-auto space-y-1 py-1">
+          <div className="max-h-[70vh] overflow-y-auto space-y-1 py-1">
             {/* Info grid */}
             <section>
               <SectionTitle>{t("basicInfo")}</SectionTitle>
@@ -420,6 +608,48 @@ function DetailDialog({ id, onClose, onEdit }: DetailDialogProps) {
               </div>
               {bot.description && (
                 <p className="mt-3 text-sm text-muted-foreground">{bot.description}</p>
+              )}
+            </section>
+
+            {/* Prompts section */}
+            <section>
+              <SectionTitle>
+                {t("promptsTab")}
+                {promptEntries.length > 0 && (
+                  <span className="ml-2 rounded-full bg-violet-500/20 px-1.5 py-0.5 text-violet-400">
+                    {promptEntries.length}
+                  </span>
+                )}
+              </SectionTitle>
+              {promptEntries.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t("noPrompts")}</p>
+              ) : (
+                <div className="space-y-2">
+                  {promptEntries.map(([key, value]) => (
+                    <div key={key} className="rounded-lg border border-border bg-muted/20 p-3">
+                      <p className="mb-1 font-mono text-[11px] font-semibold uppercase tracking-wider text-violet-400">
+                        {key}
+                      </p>
+                      <p className="whitespace-pre-wrap font-mono text-xs text-muted-foreground leading-relaxed">
+                        {value}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Structure Schema section */}
+            <section>
+              <SectionTitle>{t("schemaTab")}</SectionTitle>
+              {!bot.structure_schema?.trim() ? (
+                <p className="text-sm text-muted-foreground">—</p>
+              ) : (
+                <div className="rounded-lg border border-border bg-muted/20 p-3">
+                  <p className="whitespace-pre-wrap font-mono text-xs text-muted-foreground leading-relaxed">
+                    {bot.structure_schema}
+                  </p>
+                </div>
               )}
             </section>
 
@@ -501,7 +731,7 @@ function DetailDialog({ id, onClose, onEdit }: DetailDialogProps) {
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mb-3 font-mono text-xs uppercase tracking-widest text-muted-foreground">
+    <p className="mb-3 font-mono text-xs uppercase tracking-widest text-muted-foreground flex items-center gap-1">
       {children}
     </p>
   );
@@ -555,14 +785,6 @@ export default function AdminPage() {
 
   const editingBot = editingId ? chatbots.find(b => b.id === editingId) : undefined;
 
-  useEffect(() => {
-    if (editingId) {
-      console.log("AdminPage - editingId:", editingId);
-      console.log("AdminPage - chatbots count:", chatbots.length);
-      console.log("AdminPage - editingBot found:", !!editingBot);
-    }
-  }, [editingId, editingBot, chatbots]);
-
   function doSearch() {
     setParams((p) => ({ ...p, search, page: 1 }));
   }
@@ -573,7 +795,6 @@ export default function AdminPage() {
       await deleteMut.mutateAsync(deleteTarget.id);
       toast.success(t("deleteSuccess"));
       setDeleteTarget(null);
-      // Reset to show updated list
       setParams({ page: 1, limit: 20, status: "", search: "" });
     } catch (e) {
       toast.error(t("deleteError") + (e instanceof Error ? e.message : String(e)));
@@ -584,7 +805,6 @@ export default function AdminPage() {
     try {
       await statusMut.mutateAsync({ id, status });
       toast.success(`Changed to ${status}`);
-      // Reset to show updated list
       setParams({ page: 1, limit: 20, status: "", search: "" });
     } catch (e) {
       toast.error("Error: " + (e instanceof Error ? e.message : String(e)));
@@ -639,6 +859,7 @@ export default function AdminPage() {
                 <TableHead>Chatbot</TableHead>
                 <TableHead>{t("statusColumn")}</TableHead>
                 <TableHead>{t("color")}</TableHead>
+                <TableHead>{t("promptsTab")}</TableHead>
                 <TableHead>{t("createdColumn")}</TableHead>
                 <TableHead className="w-10" />
               </TableRow>
@@ -647,7 +868,7 @@ export default function AdminPage() {
               {isLoading &&
                 [...Array(6)].map((_, i) => (
                   <TableRow key={i}>
-                    {[...Array(5)].map((_, j) => (
+                    {[...Array(6)].map((_, j) => (
                       <TableCell key={j}><Skeleton className="h-4 w-full" /></TableCell>
                     ))}
                   </TableRow>
@@ -655,89 +876,115 @@ export default function AdminPage() {
 
               {!isLoading && chatbots.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={5} className="py-16 text-center text-muted-foreground">
+                  <TableCell colSpan={6} className="py-16 text-center text-muted-foreground">
                     {t("noChatbots")}
                   </TableCell>
                 </TableRow>
               )}
 
-              {chatbots.map((bot) => (
-                <TableRow
-                  key={bot.id}
-                  className="cursor-pointer hover:bg-muted/50"
-                  onClick={() => setDetailId(bot.id)}
-                >
-                  <TableCell>
-                    <div className="flex items-center gap-3">
-                      {bot.logo_url ? (
-                        <img src={bot.logo_url || ""} alt={bot.name} className="h-9 w-9 rounded-xl object-cover flex-shrink-0" />
-                      ) : (
-                        <Avatar name={bot.name} color={bot.primary_color} />
-                      )}
-                      <div>
-                        <p className="font-bold">{bot.name}</p>
-                        <p className="font-mono text-sm text-muted-foreground">{bot.email}</p>
+              {chatbots.map((bot) => {
+                const promptKeys = Object.keys(bot.prompts ?? {});
+                return (
+                  <TableRow
+                    key={bot.id}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => setDetailId(bot.id)}
+                  >
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        {bot.logo_url ? (
+                          <img src={bot.logo_url || ""} alt={bot.name} className="h-9 w-9 rounded-xl object-cover flex-shrink-0" />
+                        ) : (
+                          <Avatar name={bot.name} color={bot.primary_color} />
+                        )}
+                        <div>
+                          <p className="font-bold">{bot.name}</p>
+                          <p className="font-mono text-sm text-muted-foreground">{bot.email}</p>
+                        </div>
                       </div>
-                    </div>
-                  </TableCell>
+                    </TableCell>
 
-                  <TableCell>
-                    <Badge variant="outline" className={STATUS_CLS[bot.status]}>
-                      {bot.status}
-                    </Badge>
-                  </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className={STATUS_CLS[bot.status]}>
+                        {bot.status}
+                      </Badge>
+                    </TableCell>
 
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <span
-                        className="h-4 w-4 rounded-full border border-white/10"
-                        style={{ background: bot.primary_color }}
-                      />
-                      <span className="font-mono text-sm text-muted-foreground">
-                        {bot.primary_color}
-                      </span>
-                    </div>
-                  </TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className="h-4 w-4 rounded-full border border-white/10"
+                          style={{ background: bot.primary_color }}
+                        />
+                        <span className="font-mono text-sm text-muted-foreground">
+                          {bot.primary_color}
+                        </span>
+                      </div>
+                    </TableCell>
 
-                  <TableCell className="font-mono text-sm text-muted-foreground">
-                    {fmtDate(bot.created_at)}
-                  </TableCell>
+                    {/* Prompts column */}
+                    <TableCell onClick={(e) => { e.stopPropagation(); openEdit(bot.id); }}>
+                      {promptKeys.length === 0 ? (
+                        <span className="text-xs text-muted-foreground/50 italic">—</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {promptKeys.slice(0, 3).map((k) => (
+                            <span
+                              key={k}
+                              className="rounded-md border border-violet-500/30 bg-violet-500/10 px-1.5 py-0.5 font-mono text-[10px] text-violet-400"
+                            >
+                              {k}
+                            </span>
+                          ))}
+                          {promptKeys.length > 3 && (
+                            <span className="rounded-md border border-border px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                              +{promptKeys.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </TableCell>
 
-                  <TableCell onClick={(e) => e.stopPropagation()}>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8">
-                          ⋯
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-44">
-                        <DropdownMenuItem onClick={() => setDetailId(bot.id)}>
-                          {t("viewDetails")}
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => openEdit(bot.id)}>
-                          {t("edit")}
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        {STATUSES.filter((s) => s !== bot.status).map((s) => (
-                          <DropdownMenuItem
-                            key={s}
-                            onClick={() => handleStatusChange(bot.id, s)}
-                          >
-                            {t("changeTo")} {s}
+                    <TableCell className="font-mono text-sm text-muted-foreground">
+                      {fmtDate(bot.created_at)}
+                    </TableCell>
+
+                    <TableCell onClick={(e) => e.stopPropagation()}>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8">
+                            ⋯
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuItem onClick={() => setDetailId(bot.id)}>
+                            {t("viewDetails")}
                           </DropdownMenuItem>
-                        ))}
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          className="text-destructive focus:text-destructive"
-                          onClick={() => setDeleteTarget(bot)}
-                        >
-                          {t("delete")}
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </TableCell>
-                </TableRow>
-              ))}
+                          <DropdownMenuItem onClick={() => openEdit(bot.id)}>
+                            {t("edit")}
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          {STATUSES.filter((s) => s !== bot.status).map((s) => (
+                            <DropdownMenuItem
+                              key={s}
+                              onClick={() => handleStatusChange(bot.id, s)}
+                            >
+                              {t("changeTo")} {s}
+                            </DropdownMenuItem>
+                          ))}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem
+                            className="text-destructive focus:text-destructive"
+                            onClick={() => setDeleteTarget(bot)}
+                          >
+                            {t("delete")}
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
@@ -815,5 +1062,3 @@ export default function AdminPage() {
     </div>
   );
 }
-
-
