@@ -100,6 +100,7 @@ const BLANK: ChatbotFormData = {
   prompts: {},
   tools: {},
   structure_schema: "",
+  middleware_host: "",
 };
 
 // ──────────────────────────────────────────────
@@ -392,7 +393,7 @@ function ToolsEditor({ tools, prompts, onChange }: ToolsEditorProps) {
   useEffect(() => {
     setEntries(toToolEntries(tools, prompts));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(tools)]);
+  }, [JSON.stringify(tools), JSON.stringify(prompts)]);
 
   // Pure-prompt keys = prompts keys that are NOT tool keys
   const purePromptKeys = Object.keys(prompts).filter((k) => !(k in tools));
@@ -603,6 +604,7 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
         prompts: editingBot.prompts ?? {},
         tools: (editingBot as any).tools ?? {},
         structure_schema: editingBot.structure_schema ?? "",
+        middleware_host: (editingBot as any).middleware_host ?? "",
       });
     } else if (!editingId) {
       setForm(BLANK);
@@ -629,6 +631,19 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
     }
 
     const toolKeys = Object.keys((form as any).tools ?? {});
+
+    // Đảm bảo tool prompts luôn được merge vào prompts trước khi save
+    // (phòng trường hợp user không vào tab Tools nên onChange chưa được gọi)
+    const currentTools: Record<string, ToolValue> = (form as any).tools ?? {};
+    const currentPrompts: Record<string, PromptValue> = form.prompts ?? {};
+    const mergedPrompts: Record<string, PromptValue> = { ...currentPrompts };
+    for (const toolKey of Object.keys(currentTools)) {
+      if (!mergedPrompts[toolKey]) {
+        // Tool có trong tools nhưng chưa có prompt → tạo entry rỗng
+        mergedPrompts[toolKey] = { system: "", human: "" };
+      }
+      // Nếu đã có thì giữ nguyên (user đã nhập hoặc load từ DB)
+    }
 
     // Validate prompt keys — no empty keys
     const entries = Object.entries(form.prompts ?? {});
@@ -668,8 +683,9 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
       ...form,
       logo_url: form.logo_url?.trim() || null,
       description: form.description?.trim() || null,
-      prompts: form.prompts ?? {},
+      prompts: mergedPrompts,
       tools: (form as any).tools ?? {},
+      middleware_host: (form as any).middleware_host?.trim() || "",
     };
 
     try {
@@ -762,6 +778,16 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
                   value={form.logo_url ?? ""}
                   onChange={(e) => set("logo_url", e.target.value)}
                   placeholder="https://..."
+                />
+              </div>
+
+              <div className="grid gap-1.5">
+                <Label>Middleware Link</Label>
+                <Input
+                  value={(form as any).middleware_host ?? ""}
+                  onChange={(e) => setForm((f) => ({ ...f, middleware_host: e.target.value } as any))}
+                  placeholder="https://middleware.example.com/api/..."
+                  className="font-mono text-sm"
                 />
               </div>
 
@@ -939,6 +965,20 @@ function DetailDialog({ id, onClose, onEdit }: DetailDialogProps) {
               </div>
               {bot.description && (
                 <p className="mt-3 text-sm text-muted-foreground">{bot.description}</p>
+              )}
+              {(bot as any).middleware_host && (
+                <div className="mt-2">
+                  <InfoField label="Middleware Link" mono>
+                    <a
+                      href={(bot as any).middleware_host}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-violet-400 hover:underline break-all"
+                    >
+                      {(bot as any).middleware_host}
+                    </a>
+                  </InfoField>
+                </div>
               )}
             </section>
 
