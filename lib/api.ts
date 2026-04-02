@@ -18,6 +18,7 @@ export interface Chatbot {
   description: string | null;
   status: ChatbotStatus;
   prompts: Record<string, PromptValue>;
+  tools?: Record<string, { description: string; business_rules: string }>;
   structure_schema: string;
   created_at: string | null;
   updated_at: string | null;
@@ -67,7 +68,8 @@ export interface ChatbotFormData {
   primary_color: string;
   status: ChatbotStatus;
   description?: string | null;
-  prompts: Record<string, PromptValue>;
+  prompts?: Record<string, PromptValue>;
+  tools?: Record<string, { description: string; business_rules: string }>;
   structure_schema?: string;
 }
 export interface OverviewData {

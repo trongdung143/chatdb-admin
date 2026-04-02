@@ -98,6 +98,7 @@ const BLANK: ChatbotFormData = {
   status: "Pending",
   description: "",
   prompts: {},
+  tools: {},
   structure_schema: "",
 };
 
@@ -208,10 +209,11 @@ function fromEntries(entries: PromptEntry[]): Record<string, PromptValue> {
 
 interface PromptsEditorProps {
   prompts: Record<string, PromptValue>;
+  reservedKeys?: string[]; // tool keys — cannot reuse here
   onChange: (prompts: Record<string, PromptValue>) => void;
 }
 
-function PromptsEditor({ prompts, onChange }: PromptsEditorProps) {
+function PromptsEditor({ prompts, reservedKeys = [], onChange }: PromptsEditorProps) {
   const { t } = useLanguage();
   const [entries, setEntries] = useState<PromptEntry[]>(() => toEntries(prompts));
 
@@ -258,14 +260,22 @@ function PromptsEditor({ prompts, onChange }: PromptsEditorProps) {
               {/* Key row */}
               <div className="flex items-center gap-2">
                 <div className="flex-1">
-                  <Label className="mb-1 block text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
-                    {t("promptKey")}
-                  </Label>
+                  <div className="mb-1 flex items-center gap-2">
+                    <Label className="block text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                      {t("promptKey")}
+                    </Label>
+                    {reservedKeys.includes(entry.key.trim()) && (
+                      <span className="inline-flex items-center gap-1 rounded-md border border-orange-500/40 bg-orange-500/10 px-1.5 py-0.5 font-mono text-[10px] text-orange-400">
+                        <span>⚙</span> Prompt của tool · quản lý ở tab Tools
+                      </span>
+                    )}
+                  </div>
                   <Input
                     value={entry.key}
                     onChange={(e) => update(i, "key", e.target.value)}
                     placeholder={t("promptKeyPlaceholder")}
-                    className="font-mono text-sm h-8"
+                    readOnly={reservedKeys.includes(entry.key.trim())}
+                    className={`font-mono text-sm h-8 ${reservedKeys.includes(entry.key.trim()) ? "cursor-not-allowed opacity-60" : ""}`}
                   />
                 </div>
                 <Button
@@ -325,10 +335,247 @@ function PromptsEditor({ prompts, onChange }: PromptsEditorProps) {
 }
 
 // ──────────────────────────────────────────────
+// Tools Editor
+// ──────────────────────────────────────────────
+
+type ToolValue = { description: string; business_rules: string };
+// Full tool entry including its prompt (stored separately in prompts column)
+type ToolEntry = {
+  key: string;
+  value: ToolValue;
+  prompt: { system: string; human: string };
+};
+
+function toToolEntries(
+  tools: Record<string, ToolValue>,
+  prompts: Record<string, PromptValue>,
+): ToolEntry[] {
+  return Object.entries(tools).map(([key, value]) => ({
+    key,
+    value: {
+      description: value?.description ?? "",
+      business_rules: value?.business_rules ?? "",
+    },
+    prompt: {
+      system: prompts[key]?.system ?? "",
+      human: prompts[key]?.human ?? "",
+    },
+  }));
+}
+
+// Returns { tools, toolPrompts } — toolPrompts are merged into prompts col by caller
+function fromToolEntries(entries: ToolEntry[]): {
+  tools: Record<string, ToolValue>;
+  toolPrompts: Record<string, PromptValue>;
+} {
+  const tools: Record<string, ToolValue> = {};
+  const toolPrompts: Record<string, PromptValue> = {};
+  for (const { key, value, prompt } of entries) {
+    tools[key] = value;
+    toolPrompts[key] = prompt;
+  }
+  return { tools, toolPrompts };
+}
+
+interface ToolsEditorProps {
+  tools: Record<string, ToolValue>;
+  // prompts currently in form — needed to read existing tool prompts + detect conflicts
+  prompts: Record<string, PromptValue>;
+  onChange: (tools: Record<string, ToolValue>, toolPrompts: Record<string, PromptValue>) => void;
+}
+
+function ToolsEditor({ tools, prompts, onChange }: ToolsEditorProps) {
+  const [entries, setEntries] = useState<ToolEntry[]>(() => toToolEntries(tools, prompts));
+  // track which indices have a duplicate/conflicting key
+  const [keyErrors, setKeyErrors] = useState<Record<number, string>>({});
+
+  useEffect(() => {
+    setEntries(toToolEntries(tools, prompts));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [JSON.stringify(tools)]);
+
+  // Pure-prompt keys = prompts keys that are NOT tool keys
+  const purePromptKeys = Object.keys(prompts).filter((k) => !(k in tools));
+
+  function validateKeys(updatedEntries: ToolEntry[]) {
+    const errors: Record<number, string> = {};
+    updatedEntries.forEach((e, i) => {
+      const key = e.key.trim();
+      if (!key) return;
+      // duplicate among tools
+      const isDupTool = updatedEntries.some((o, j) => j !== i && o.key.trim() === key);
+      if (isDupTool) { errors[i] = "Tên tool bị trùng"; return; }
+      // conflict with pure prompt keys
+      if (purePromptKeys.includes(key)) {
+        errors[i] = "Tên đã dùng ở tab Prompts";
+      }
+    });
+    setKeyErrors(errors);
+    return errors;
+  }
+
+  function update(
+    index: number,
+    field: "key" | "description" | "business_rules" | "system" | "human",
+    val: string,
+  ) {
+    const next = entries.map((e, i) => {
+      if (i !== index) return e;
+      if (field === "key") return { ...e, key: val };
+      if (field === "system" || field === "human")
+        return { ...e, prompt: { ...e.prompt, [field]: val } };
+      return { ...e, value: { ...e.value, [field]: val } };
+    });
+    setEntries(next);
+    validateKeys(next);
+    const { tools: t, toolPrompts } = fromToolEntries(next);
+    onChange(t, toolPrompts);
+  }
+
+  function addRow() {
+    const next = [
+      ...entries,
+      { key: "", value: { description: "", business_rules: "" }, prompt: { system: "", human: "" } },
+    ];
+    setEntries(next);
+    validateKeys(next);
+    const { tools: t, toolPrompts } = fromToolEntries(next);
+    onChange(t, toolPrompts);
+  }
+
+  function removeRow(index: number) {
+    const next = entries.filter((_, i) => i !== index);
+    setEntries(next);
+    validateKeys(next);
+    const { tools: t, toolPrompts } = fromToolEntries(next);
+    onChange(t, toolPrompts);
+  }
+
+  const LABEL = "mb-1 block text-[10px] font-mono uppercase tracking-wider text-muted-foreground";
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Mỗi tool có tên (function name), mô tả, quy tắc nghiệp vụ và prompt riêng.
+        Prompt sẽ được lưu vào cột <code className="rounded bg-muted px-1">prompts</code> cùng key.
+      </p>
+
+      {entries.length === 0 ? (
+        <div className="rounded-lg border border-dashed border-border bg-muted/20 py-8 text-center text-sm text-muted-foreground">
+          Chưa có tool nào. Nhấn "+ Thêm Tool" để bắt đầu.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {entries.map((entry, i) => {
+            const hasErr = !!keyErrors[i];
+            return (
+              <div
+                key={i}
+                className={`rounded-lg border bg-muted/20 p-3 space-y-2 ${hasErr ? "border-destructive/60" : "border-border"}`}
+              >
+                {/* Tool name */}
+                <div className="flex items-start gap-2">
+                  <div className="flex-1">
+                    <Label className={LABEL}>Tên Tool (function name)</Label>
+                    <Input
+                      value={entry.key}
+                      onChange={(e) => update(i, "key", e.target.value)}
+                      placeholder="get_business_rules"
+                      className={`font-mono text-sm h-8 ${hasErr ? "border-destructive" : ""}`}
+                    />
+                    {hasErr && (
+                      <p className="mt-1 text-[11px] text-destructive">{keyErrors[i]}</p>
+                    )}
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="mt-5 h-8 px-2 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                    onClick={() => removeRow(i)}
+                  >
+                    ✕
+                  </Button>
+                </div>
+
+                {/* Description */}
+                <div>
+                  <Label className={LABEL}>Description</Label>
+                  <Textarea
+                    rows={2}
+                    value={entry.value.description}
+                    onChange={(e) => update(i, "description", e.target.value)}
+                    placeholder="Mô tả ngắn gọn chức năng của tool này..."
+                    className="resize-y text-sm font-mono leading-relaxed"
+                  />
+                </div>
+
+                {/* Business Rules */}
+                <div>
+                  <Label className={LABEL}>Business Rules</Label>
+                  <Textarea
+                    rows={3}
+                    value={entry.value.business_rules}
+                    onChange={(e) => update(i, "business_rules", e.target.value)}
+                    placeholder={"- Quy tắc 1\n- Quy tắc 2\n- Quy tắc 3"}
+                    className="resize-y text-sm font-mono leading-relaxed"
+                  />
+                </div>
+
+                {/* Divider */}
+                <div className="flex items-center gap-2 pt-1">
+                  <div className="h-px flex-1 bg-border" />
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Prompt</span>
+                  <div className="h-px flex-1 bg-border" />
+                </div>
+
+                {/* System prompt */}
+                <div>
+                  <Label className={`${LABEL} text-sky-400/70`}>System</Label>
+                  <Textarea
+                    rows={2}
+                    value={entry.prompt.system}
+                    onChange={(e) => update(i, "system", e.target.value)}
+                    placeholder="System prompt cho tool này..."
+                    className="resize-y text-sm font-mono leading-relaxed"
+                  />
+                </div>
+
+                {/* Human prompt */}
+                <div>
+                  <Label className={`${LABEL} text-emerald-400/70`}>Human</Label>
+                  <Textarea
+                    rows={2}
+                    value={entry.prompt.human}
+                    onChange={(e) => update(i, "human", e.target.value)}
+                    placeholder="Human prompt cho tool này..."
+                    className="resize-y text-sm font-mono leading-relaxed"
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        className="w-full border-dashed text-muted-foreground hover:text-foreground"
+        onClick={addRow}
+      >
+        + Thêm Tool
+      </Button>
+    </div>
+  );
+}
+
+// ──────────────────────────────────────────────
 // Form Dialog
 // ──────────────────────────────────────────────
 
-type FormTab = "general" | "prompts" | "schema";
+type FormTab = "general" | "prompts" | "tools" | "schema";
 
 interface FormDialogProps {
   open: boolean;
@@ -354,6 +601,7 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
         status: editingBot.status,
         description: editingBot.description ?? "",
         prompts: editingBot.prompts ?? {},
+        tools: (editingBot as any).tools ?? {},
         structure_schema: editingBot.structure_schema ?? "",
       });
     } else if (!editingId) {
@@ -380,6 +628,8 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
       return;
     }
 
+    const toolKeys = Object.keys((form as any).tools ?? {});
+
     // Validate prompt keys — no empty keys
     const entries = Object.entries(form.prompts ?? {});
     const hasEmptyKey = entries.some(([k]) => !k.trim());
@@ -388,10 +638,29 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
       toast.error(t("promptKeyRequired"));
       return;
     }
-    const keys = entries.map(([k]) => k.trim());
-    if (new Set(keys).size !== keys.length) {
+    const promptKeys = entries.map(([k]) => k.trim());
+    if (new Set(promptKeys).size !== promptKeys.length) {
       setActiveTab("prompts");
       toast.error(t("promptKeyDuplicate"));
+      return;
+    }
+
+    // Validate tool keys — no empty, no duplicate, no conflict with pure prompt keys
+    const purePromptKeys = promptKeys.filter((k) => !toolKeys.includes(k));
+    if (toolKeys.some((k) => !k.trim())) {
+      setActiveTab("tools");
+      toast.error("Tên tool không được để trống");
+      return;
+    }
+    if (new Set(toolKeys).size !== toolKeys.length) {
+      setActiveTab("tools");
+      toast.error("Tên tool bị trùng");
+      return;
+    }
+    const conflictKey = toolKeys.find((k) => purePromptKeys.includes(k));
+    if (conflictKey) {
+      setActiveTab("tools");
+      toast.error(`Tên tool "${conflictKey}" đã được dùng ở tab Prompts`);
       return;
     }
 
@@ -400,6 +669,7 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
       logo_url: form.logo_url?.trim() || null,
       description: form.description?.trim() || null,
       prompts: form.prompts ?? {},
+      tools: (form as any).tools ?? {},
     };
 
     try {
@@ -444,6 +714,14 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
             {promptCount > 0 && (
               <span className="ml-2 rounded-full bg-violet-500/20 px-1.5 py-0.5 font-mono text-[10px] text-violet-400">
                 {promptCount}
+              </span>
+            )}
+          </button>
+          <button className={TAB_CLS("tools")} onClick={() => setActiveTab("tools")}>
+            Tools
+            {Object.keys((form as any).tools ?? {}).length > 0 && (
+              <span className="ml-2 rounded-full bg-orange-500/20 px-1.5 py-0.5 font-mono text-[10px] text-orange-400">
+                {Object.keys((form as any).tools ?? {}).length}
               </span>
             )}
           </button>
@@ -541,7 +819,26 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
           <div className="max-h-[420px] overflow-y-auto py-1 pr-1">
             <PromptsEditor
               prompts={form.prompts ?? {}}
+              reservedKeys={Object.keys((form as any).tools ?? {})}
               onChange={(p) => setForm((f) => ({ ...f, prompts: p }))}
+            />
+          </div>
+        )}
+
+        {/* Tools tab */}
+        {activeTab === "tools" && (
+          <div className="max-h-[420px] overflow-y-auto py-1 pr-1">
+            <ToolsEditor
+              tools={(form as any).tools ?? {}}
+              prompts={form.prompts ?? {}}
+              onChange={(tools, toolPrompts) => setForm((f) => {
+                // Merge toolPrompts into existing prompts (tool keys override, pure prompts kept)
+                const toolKeys = Object.keys(tools);
+                const purePrompts = Object.fromEntries(
+                  Object.entries(f.prompts ?? {}).filter(([k]) => !toolKeys.includes(k))
+                );
+                return { ...f, tools, prompts: { ...purePrompts, ...toolPrompts } } as any;
+              })}
             />
           </div>
         )}
@@ -589,6 +886,10 @@ function DetailDialog({ id, onClose, onEdit }: DetailDialogProps) {
 
   const promptEntries = bot
     ? Object.entries(bot.prompts ?? {}) as [string, PromptValue][]
+    : [];
+
+  const toolEntries = bot
+    ? Object.entries((bot as any).tools ?? {}) as [string, ToolValue][]
     : [];
 
   return (
@@ -732,6 +1033,49 @@ function DetailDialog({ id, onClose, onEdit }: DetailDialogProps) {
                           {value?.human || "—"}
                         </p>
                       </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            {/* Tools section */}
+            <section>
+              <SectionTitle>
+                Tools
+                {toolEntries.length > 0 && (
+                  <span className="ml-2 rounded-full bg-orange-500/20 px-1.5 py-0.5 text-orange-400">
+                    {toolEntries.length}
+                  </span>
+                )}
+              </SectionTitle>
+              {toolEntries.length === 0 ? (
+                <p className="text-sm text-muted-foreground">—</p>
+              ) : (
+                <div className="space-y-2">
+                  {toolEntries.map(([key, value]) => (
+                    <div key={key} className="rounded-lg border border-border bg-muted/20 p-3 space-y-2">
+                      <p className="font-mono text-[11px] font-semibold uppercase tracking-wider text-orange-400">
+                        {key}
+                      </p>
+                      <div>
+                        <span className="mb-1.5 inline-flex items-center rounded-md border border-sky-500/40 bg-sky-500/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-sky-400">
+                          Description
+                        </span>
+                        <p className="whitespace-pre-wrap font-mono text-xs text-muted-foreground leading-relaxed">
+                          {value?.description || "—"}
+                        </p>
+                      </div>
+                      {value?.business_rules && (
+                        <div>
+                          <span className="mb-1.5 inline-flex items-center rounded-md border border-emerald-500/40 bg-emerald-500/10 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+                            Business Rules
+                          </span>
+                          <p className="whitespace-pre-wrap font-mono text-xs text-muted-foreground leading-relaxed">
+                            {value.business_rules}
+                          </p>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
