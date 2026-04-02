@@ -71,6 +71,7 @@ export interface ChatbotFormData {
   prompts?: Record<string, PromptValue>;
   tools?: Record<string, { description: string; business_rules: string }>;
   structure_schema?: string;
+  middleware_host?: string;
 }
 export interface OverviewData {
   chatbots: {

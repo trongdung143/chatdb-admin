@@ -782,7 +782,7 @@ function FormDialog({ open, editingId, editingBot, onClose, onSaveComplete }: Fo
               </div>
 
               <div className="grid gap-1.5">
-                <Label>Middleware Link</Label>
+                <Label>Middleware Host</Label>
                 <Input
                   value={(form as any).middleware_host ?? ""}
                   onChange={(e) => setForm((f) => ({ ...f, middleware_host: e.target.value } as any))}
@@ -968,7 +968,7 @@ function DetailDialog({ id, onClose, onEdit }: DetailDialogProps) {
               )}
               {(bot as any).middleware_host && (
                 <div className="mt-2">
-                  <InfoField label="Middleware Link" mono>
+                  <InfoField label="Middleware Host" mono>
                     <a
                       href={(bot as any).middleware_host}
                       target="_blank"
